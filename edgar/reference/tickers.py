@@ -211,8 +211,8 @@ def get_icon_from_ticker(ticker: str) -> Optional[bytes]:
     if not isinstance(ticker, str):
         raise ValueError("The ticker must be a valid string.")
 
-    if not ticker.isalpha():
-        raise ValueError("The ticker must only contain alphabetic characters.")
+    #if not ticker.isalpha():
+     #   raise ValueError("The ticker must only contain alphabetic characters.")
 
     try:
         downloaded = download_file(
