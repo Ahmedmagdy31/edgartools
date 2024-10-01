@@ -1,4 +1,6 @@
 import itertools
+from billiard import Pool
+import pyarrow as pa
 import pickle
 import re
 import webbrowser
@@ -376,8 +378,7 @@ def _empty_filing_index():
     ], schema=schema)
 
 
-def get_filings_for_quarters(year_and_quarters: YearAndQuarters,
-                             index="form") -> pa.Table:
+def get_filings_for_quarters(year_and_quarters, index="form") -> pa.Table:
     """
     Get the filings for the quarters
     :param year_and_quarters:
@@ -386,21 +387,15 @@ def get_filings_for_quarters(year_and_quarters: YearAndQuarters,
     """
 
     if len(year_and_quarters) == 1:
-        _, final_index_table = fetch_filing_index(year_and_quarter=year_and_quarters[0],
-                                                  index=index)
+        _, final_index_table = fetch_filing_index(year_and_quarter=year_and_quarters[0], index=index)
     else:
-        quarters_and_indexes = parallel(fetch_filing_index,
-                                        items=year_and_quarters,
-                                        index=index,
-                                        threadpool=True,
-                                        progress=True
-                                        )
+        with Pool() as pool:
+            quarters_and_indexes = pool.map(lambda yq: fetch_filing_index(yq, index), year_and_quarters)
         quarter_and_indexes_sorted = sorted(quarters_and_indexes, key=lambda d: d[0])
         index_tables = [fd[1] for fd in quarter_and_indexes_sorted]
-        final_index_table: pa.Table = pa.concat_tables(index_tables, mode="default")
+        final_index_table = pa.concat_tables(index_tables, mode="default")
+    
     return final_index_table
-
-
 @dataclass
 class FilingsState:
     page_start: int
