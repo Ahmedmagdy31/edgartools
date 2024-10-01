@@ -27,7 +27,7 @@
 - 📅 **List filings for any date range**: List filings for **year, quarter** e.g. or date range `2024-02-29:2024-03-15`
 - 🌟 **Best looking edgar library**: Uses **[rich](https://rich.readthedocs.io/en/stable/introduction.html)** library to display SEC Edgar data in a beautiful way.
 - 🧠 **Intuitive and easy to use**: **edgartools** has a super simple API that is easy to use.
-- 🛠️ **Works as a library or a CLI**: You can use edgartools as a library in your code or as a CLI tool.
+- ��️ **Works as a library or a CLI**: You can use edgartools as a library in your code or as a CLI tool.
 - 🔄 **Page through filings**: Use `filings.next()` and `filings.previous()` to page through filings
 - 🏗️ **Build Data Pipelines**: Build data pipelines by finding, filtering, transforming and saving filings
 - ✅ **Select a filing**: You can select a filing from the list of filings.
@@ -41,7 +41,7 @@
 - 🕒 **Automatic throttling**: Automatically throttles requests to Edgar to avoid being blocked.
 - 📥 **Bulk downloads**: Faster batch processing through bulk downloads of filings and facts
 - 🔢 **Get company by Ticker or Cik**: Get a company by ticker `Company("SNOW")` or cik `Company(1640147)`
-- 📚 **Get company filings**: You can get all the company's historical filings using `company.get_filings()`
+-  **Get company filings**: You can get all the company's historical filings using `company.get_filings()`
 - 📈 **Get company facts**: You can get company facts using `company.get_facts()`
 - 🔍 **Lookup Ticker by CUSIP**: You can lookup a ticker by CUSIP
 - 📑 **Dataset of SEC entities**: You can get a dataset of SEC companies and persons
@@ -103,73 +103,112 @@ You can get the company's **filings**, **facts** and **financials**.
 
 # How to use edgartools
 
-| Task                                 | Code                                                  |
+|                                      | Code                                                  |
 |--------------------------------------|-------------------------------------------------------|
-| Set your EDGAR identity in Linux/Mac | `export EDGAR_IDENTITY="First Last email@domain.com"` |
-| Set your EDGAR identity in Windows   | `set EDGAR_IDENTITY="First Last email@domain.com"`    |
-| Set identity in Windows Powershell   | `$env:EDGAR_IDENTITY="First Last email@domain.com"`   |
-| Set identity in Python               | `set_identity("First Last email@domain.com")`         |
+| Set your EDGAR identity in Linux/Mac | `export EDGAR_IDENTITY="email@domain.com"` |
+| Set your EDGAR identity in Windows   | `set EDGAR_IDENTITY="email@domain.com"`    |
+| Set identity in Windows Powershell   | `$env:EDGAR_IDENTITY="email@domain.com"`   |
+| Set identity in Python               | `set_identity("email@domain.com")`         |
 | Importing the library                | `from edgar import *`                                 |
 
-### Working with filings
+### Working with filings 📁
 
-| Task                               | Code                                          |
-|------------------------------------|-----------------------------------------------|
-| Get filings for the year to date   | `filings = get_filings()`                     |
-| Get only xbrl filings              | `filings = get_filings(index="xbrl")`         |
-| Get filings for a specific year    | `filings = get_filings(2020)`                 |
-| Get filings for a specific quarter | `filings = get_filings(2020, 1)`              |
-| Get filings for multiple years     | `filings = get_filings([2020, 2021])`         |
-| Get filigs for a range of years    | `filings = get_filings(year=range(2010, 2020)` |
-| Get filings for a specific form    | `filings = get_filings(form="10-K")`          |
-| Get filings for a list of forms    | `filings = get_filings(form=["10-K", "10-Q"])` |
-| Show the next page of filings      | `filings.next()`                              |
-| Show the previous page of filings  | `filings.prev()`                              |
-| Get the first n filings            | `filings.head(20)`                            |
-| Get the last n filings             | `filings.tail(20)`                            |
-| Get the latest n filings by date   | `filings.latest(20)`                          |
-| Get a random sample of the filings | `filings.sample(20)`                          |
-| Filter filings on a date           | `filings = filings.filter(date="2020-01-01")` |
-| Filter filings between dates       | `filings.filter(date="2020-01-01:2020-03-01")` |
-| Filter filings before a date       | `filings.filter(date=":2020-03-01")`          |  
-| Filter filings after a date        | `filings.filter(date="2020-03-01:")`          |
-| Get filings as a pandas dataframe  | `filings.to_pandas()`                         |
+#### 🔍 Getting Filings
 
-### Working with a filing
+|                                        | Code                                            |
+|----------------------------------------|--------------------------------------------------|
+| 📅 Get filings for the year to date    | `filings = get_filings()`                       |
+| 📊 Get only XBRL filings               | `filings = get_filings(index="xbrl")`           |
+| 📆 Get filings for a specific year     | `filings = get_filings(2020)`                   |
+| 🗓️ Get filings for a specific quarter | `filings = get_filings(2020, 1)`              |
+| 📚 Get filings for multiple years      | `filings = get_filings([2020, 2021])`           |
+| 📈 Get filings for a range of years    | `filings = get_filings(year=range(2010, 2020))` |
 
-| Task                                      | Code                                                      |
-|-------------------------------------------|-----------------------------------------------------------|
-| Get a single filing                       | `filing = filings[3]`                                     |
-| Get a filing by accession number          | `filing = get_by_accession_number("0000320193-20-34576")` |
-| Get the filing homepage                   | `filing.homepage`                                         |
-| Open a filing in the browser              | `filing.open()`                                           |
-| Open the filing homepage in the browser   | `filing.homepage.open()`                                  |
-| View the filing in the terminal           | `filing.view()`                                           |
-| Get the html of the filing document       | `filing.html()`                                           |
-| Get the XBRL of the filing document       | `filing.xbrl()`                                           |
-| Get the filing document as markdown       | `filing.markdown()`                                       |
-| Get the full submission text of a filing  | `filing.text()`                                           |
-| Get and parse the data object of a filing | `filing.obj()`                                            |
-| Get the filing attachments                | `filing.attachments`                                      |
-| Get a single attachment                   | `attachment = filing.attachments[0]`                      |
-| Open an attachment in the browser         | `attachment.open()`                                       |
-| Download an attachment                    | `content = attachment.download()`                         |
+#### 📄 Filtering Filings
+
+|                                   | Code                                                  |
+|-----------------------------------|-------------------------------------------------------|
+| 📝 Filter by form type            | `filings.filter(form="10-K")`                         |
+| 📑 Filter by multiple forms       | `filings.filter(form=["10-K", "10-Q"])`               |
+| 🔄 Include form amendments        | `filings.filter(form="10-K", amendments=True)`        |
+| 🏢 Filter by CIK                  | `filings.filter(cik="0000320193")`                    |
+| 🏙️ Filter by multiple CIKs       | `filings.filter(cik=["0000320193", "1018724"])`       |
+| 🏷️ Filter by ticker              | `filings.filter(ticker="AAPL")`                       |
+| 🏷️🏷️ Filter by multiple tickers | `filings.filter(ticker=["AAPL", "MSFT"])`             |
+| 📅 Filter on a specific date      | `filings.filter(date="2020-01-01")`                   |
+| 📅↔️📅 Filter between dates       | `filings.filter(date="2020-01-01:2020-03-01")`        |
+| 📅⬅️ Filter before a date         | `filings.filter(date=":2020-03-01")`                  |
+| 📅➡️ Filter after a date          | `filings.filter(date="2020-03-01:")`                  |
+| 🔀 Combine multiple filters       | `filings.filter(form="10-K", date="2020-01-01:", ticker="AAPL")` |
+
+#### 📊 Viewing and Manipulating Filings
+
+|                                      | Code                     |
+|--------------------------------------|--------------------------|
+| ⏭️ Show the next page of filings     | `filings.next()`         |
+| ⏮️ Show the previous page of filings | `filings.prev()`       |
+| 🔝 Get the first n filings           | `filings.head(20)`       |
+| 🔚 Get the last n filings            | `filings.tail(20)`       |
+| 🕒 Get the latest n filings by date  | `filings.latest(20)`    |
+| 🎲 Get a random sample of filings    | `filings.sample(20)`     |
+| 🐼 Get filings as a pandas dataframe | `filings.to_pandas()`  |
+
+### Working with a filing 📄
+
+#### 🔍 Accessing and viewing a Filing
+
+|                                     | Code                                                      |
+|-------------------------------------|-----------------------------------------------------------|
+| 📌 Get a single filing              | `filing = filings[3]`                                     |
+| 🔢 Get a filing by accession number | `filing = get_by_accession_number("0000320193-20-34576")` |
+| 🏠 Get the filing homepage          | `filing.homepage`                                         |
+| 🌐 Open a filing in the browser     | `filing.open()`                                           |
+| 🏠 Open homepage in the browser     | `filing.homepage.open()`                                  |
+| 💻 View the filing in the terminal  | `filing.view()`                                           |
+
+#### 📊 Extracting Filing Content
+
+|                                     | Code                         |
+|-------------------------------------|-----------------------------|
+| 🌐 Get the HTML of the filing       | `filing.html()`              |
+| 📊 Get the XBRL of the filing       | `filing.xbrl()`              |
+| 📝 Get the filing as markdown       | `filing.markdown()`          |
+| 📄 Get the full submission text     | `filing.full_text_submission()` |
+| 🔢 Get and parse filing data object | `filing.obj()`               |
+| 📑 Get filing header                | `filing.header`              |
+
+#### 🔎 Searching inside a Filing
+
+|                             | Code                                    |
+|-----------------------------|----------------------------------------|
+| 🔍 Search within the filing | `filing.search("query")`                |
+| 🔍 Search with regex        | `filing.search("pattern", regex=True)`  |
+| 📊 Get filing sections      | `filing.sections()`                     |
+
+#### 📎 Working with Attachments
+
+|                               | Code                               |
+|-------------------------------|-----------------------------------|
+| 📁 Get all filing attachments | `filing.attachments`              |
+| 📄 Get a single attachment    | `attachment = filing.attachments[0]` |
+| 🌐 Open attachment in browser | `attachment.open()`               |
+| ⬇️ Download an attachment     | `content = attachment.download()` |
 
 ### Working with a company
 
-| Task                                     | Code                                                          |
-|------------------------------------------|---------------------------------------------------------------|
-| Get a company by ticker                  | `company = Company("AAPL")`                                   |
-| Get a company by CIK                     | `company = Company("0000320193")`                             |
-| Get company facts                        | `company.get_facts()`                                         |
-| Get company facts as a pandas dataframe  | `company.get_facts().to_pandas()`                             |
-| Get company filings                      | `company.get_filings()`                                       |
-| Get company filings by form              | `company.get_filings(form="10-K")`                            |
+|                                         | Code                                                          |
+|-----------------------------------------|---------------------------------------------------------------|
+| Get a company by ticker                 | `company = Company("AAPL")`                                   |
+| Get a company by CIK                    | `company = Company("0000320193")`                             |
+| Get company facts                       | `company.get_facts()`                                         |
+| Get company facts as a pandas dataframe | `company.get_facts().to_pandas()`                             |
+| Get company filings                     | `company.get_filings()`                                       |
+| Get company filings by form             | `company.get_filings(form="10-K")`                            |
 | Get a company filing by accession_number | `company.get_filing(accession_number="0000320193-21-000139")` |
-| Get the company's financials             | `company.financials`                                          |
-| Get the company's balance sheet          | `company.financials.balance_sheet`                            |
-| Get the company's income statement       | `company.financials.income_statement`                         |
-| Get the company's cash flow statement    | `company.financials.cash_flow_statement`                      |
+| Get the company's financials            | `company.financials`                                          |
+| Get the company's balance sheet         | `company.financials.balance_sheet`                            |
+| Get the company's income statement      | `company.financials.income_statement`                         |
+| Get the company's cash flow statement   | `company.financials.cash_flow_statement`                      |
 
 # Installation
 
@@ -183,7 +222,7 @@ pip install edgartools
 ## Set your Edgar user identity
 
 Before you can access the SEC Edgar API you need to set the identity that you will use to access Edgar.
-This is usually your name and email, or a company name and email.
+This is usually your name and email, or a company name and email but you can also just use an email.
 ```bash
 Sample Company Name AdminContact@<sample company domain>.com
 ```
@@ -195,18 +234,18 @@ So, you need to set this environment variable before using it.
 
 ### Setting EDGAR_IDENTITY in Linux/Mac
 ```bash
-export EDGAR_IDENTITY="Michael Mccallum mcalum@gmail.com"
+export EDGAR_IDENTITY="mcalum@gmail.com"
 ```
 
 ### Setting EDGAR_IDENTITY in Windows Powershell
 ```bash
- $Env:EDGAR_IDENTITY="Michael Mccallum mcalum@gmail.com"
+ $Env:EDGAR_IDENTITY="mcalum@gmail.com"
 ```
 Alternatively, you can call `set_identity` which does the same thing.
 
 ```python
 from edgar import set_identity
-set_identity("Michael Mccallum mcalum@gmail.com")
+set_identity("mcalum@gmail.com")
 ```
 For more detail see https://www.sec.gov/os/accessing-edgar-data
 

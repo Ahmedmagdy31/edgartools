@@ -7,8 +7,9 @@ import pytest
 from openpyxl import load_workbook
 from rich import print
 
-from edgar import Filing
-from edgar.financials import Financials
+from edgar import Filing, Company
+from edgar.financials import (Financials, MultiFinancials, BalanceSheet, CashFlowStatement,
+                              IncomeStatement, StatementOfChangesInEquity, StatementOfComprehensiveIncome)
 from edgar.xbrl import XBRLData, XBRLInstance, Statement, Statements, get_xbrl_object
 from edgar.xbrl.xbrldata import get_primary_units, get_unit_divisor
 
@@ -170,7 +171,7 @@ def test_get_dimension_values(apple_xbrl):
     instance: XBRLInstance = apple_xbrl.instance
     values = instance.get_dimension_values('us-gaap:LongtermDebtTypeAxis')
     assert values == ['aapl:FixedRateNotesMember']
-    assert not instance.get_dimension_values('us-gaap:NonExisting')
+    assert instance.get_dimension_values('us-gaap:NonExisting') == []
 
 
 def test_query_facts(apple_xbrl):
@@ -547,3 +548,143 @@ def test_statement_to_excel_writer(apple_xbrl, temp_excel_file):
     is_df = income_statement.get_dataframe(include_format=False, include_concept=False)
     is_excel_header = [cell.value for cell in is_sheet[1]]
     assert is_excel_header == is_df.columns.tolist()
+
+
+def test_multi_financials_values():
+    company = Company("AAPL", include_old_filings=False)
+    filings = company.get_filings(form="10-K").latest(3)
+    multi_financials = MultiFinancials(filings)
+
+    balance_sheet: Statement = multi_financials.get_balance_sheet()
+    assert balance_sheet.get_concept('us-gaap_CashAndCashEquivalentsAtCarryingValue').value == {'2023': '29965000000',
+                                                                                                '2022': '23646000000',
+                                                                                                '2021': '34940000000',
+                                                                                                '2020': '38016000000'}
+    std_balance_sheet = multi_financials.get_balance_sheet(standard=True)
+    assert std_balance_sheet is not None
+    assert std_balance_sheet.get_concept('us-gaap_CashAndCashEquivalentsAtCarryingValue').value == {
+        '2023': '29965000000',
+        '2022': '23646000000',
+        '2021': '34940000000',
+        '2020': '38016000000'}
+
+    income_statement: Statement = multi_financials.get_income_statement()
+    assert income_statement.get_concept('us-gaap_NetIncomeLoss').value == {'2023': '96995000000',
+                                                                           '2022': '99803000000',
+                                                                           '2021': '94680000000',
+                                                                           '2020': '57411000000',
+                                                                           '2019': '55256000000'}
+    # Cash flow statement
+    cash_flow: Statement = multi_financials.get_cash_flow_statement()
+    cashflow_values = cash_flow.get_concept('us-gaap_NetCashProvidedByUsedInOperatingActivities').value
+    assert cashflow_values == {'2023': '110543000000',
+                               '2022': '122151000000',
+                               '2021': '104038000000',
+                               '2020': '80674000000',
+                               '2019': '69391000000'}
+
+    company = Company("TSLA", include_old_filings=False)
+    filings = company.get_filings(form="10-K").latest(3)
+    multi_financials = MultiFinancials(filings)
+    balance_sheet = multi_financials.get_balance_sheet()
+    assert balance_sheet.data.columns.tolist() == ['2023', '2022', '2021', '2020', 'concept',
+                                                   'level',
+                                                   'abstract',
+                                                   'units',
+                                                   'decimals']
+    # Check that the concepts are unique
+    assert balance_sheet.data.concept.nunique() == len(balance_sheet.data)
+    # Test concept values
+    assert balance_sheet.get_concept('us-gaap_CashAndCashEquivalentsAtCarryingValue').value == {
+        '2023': '16398000000', '2022': '16253000000', '2021': '17576000000', '2020': '19384000000'}
+
+    income_statement = multi_financials.get_income_statement()
+    assert income_statement.data.columns.tolist() == ['2023', '2022', '2021', '2020', '2019', 'concept',
+                                                      'level', 'abstract', 'units', 'decimals']
+    # Get the concept for a multifinancial
+    netincome = income_statement.get_concept('us-gaap_NetIncomeLoss')
+    assert income_statement.data.concept.nunique() == len(income_statement.data)
+    assert netincome.value == {'2023': '14997000000',
+                               '2022': '12556000000',
+                               '2021': '5519000000',
+                               '2020': '721000000',
+                               '2019': '-862000000'}
+
+    # Standardized balance sheet statement
+    balance_sheet = multi_financials.get_balance_sheet(standard=True)
+    assert set(balance_sheet.concepts).issubset({concept.concept for concept in BalanceSheet.concepts})
+
+
+def test_apple_cashflow_correct_negative_values(apple_xbrl):
+    financials = Financials(apple_xbrl)
+    calculations = financials.xbrl_data.calculations
+    cash_flow = financials.get_cash_flow_statement()
+    cashflow_values = cash_flow.get_concept('us-gaap_PaymentsForRepurchaseOfCommonStock').value
+    assert cashflow_values == {'2023': '-77550000000',
+                               '2022': '-89402000000',
+                               '2021': '-85971000000'}
+
+    assert cash_flow.get_concept('us-gaap_IncreaseDecreaseInInventories').value == {
+        '2023': '-1618000000',
+        '2022': '-1484000000',
+        '2021': '-2642000000'
+    }
+    # All positive values
+    assert cash_flow.get_concept('us-gaap_ShareBasedCompensation').value == {
+        '2023': '10833000000',
+        '2022': '9038000000',
+        '2021': '7906000000'}
+
+
+def test_standardized_statements(apple_xbrl):
+    aapl_financials = Financials(apple_xbrl)
+
+    # Test balance sheet
+    balance_sheet = aapl_financials.get_balance_sheet(standard=True)
+    assert balance_sheet is not None
+    std_concepts = {concept.concept for concept in BalanceSheet.concepts}
+    actual_concepts = set(balance_sheet.data.reset_index()['concept'])
+    assert std_concepts.issuperset(
+        actual_concepts), f"Missing concepts in balance sheet: {std_concepts - actual_concepts}"
+
+    # Test income statement
+    income_statement = aapl_financials.get_income_statement(standard=True)
+    assert income_statement is not None
+    std_concepts = {concept.concept for concept in IncomeStatement.concepts}
+    actual_concepts = set(income_statement.data.reset_index()['concept'])
+    assert std_concepts.issuperset(
+        actual_concepts), f"Missing concepts in income statement: {std_concepts - actual_concepts}"
+
+    # Test cash flow statement
+    cash_flow = aapl_financials.get_cash_flow_statement(standard=True)
+    assert cash_flow is not None
+    std_concepts = {concept.concept for concept in CashFlowStatement.concepts}
+    actual_concepts = set(cash_flow.data.reset_index()['concept'])
+    assert std_concepts.issuperset(
+        actual_concepts), f"Missing concepts in cash flow statement: {std_concepts - actual_concepts}"
+
+    # Test statement of changes in equity
+    equity = aapl_financials.get_statement_of_changes_in_equity(standard=True)
+    assert equity is not None
+    std_concepts = {concept.concept for concept in StatementOfChangesInEquity.concepts}
+    actual_concepts = set(equity.data.reset_index()['concept'])
+    assert std_concepts.issuperset(
+        actual_concepts), f"Missing concepts in statement of changes in equity: {std_concepts - actual_concepts}"
+
+    # Test statement of comprehensive income
+    std_comprehensive_income = aapl_financials.get_statement_of_comprehensive_income(standard=True)
+    assert std_comprehensive_income is not None
+    std_concepts = {concept.concept for concept in StatementOfComprehensiveIncome.concepts}
+    actual_concepts = set(std_comprehensive_income.data.reset_index()['concept'])
+    assert std_concepts.issuperset(
+        actual_concepts), f"Missing concepts in statement of comprehensive income: {std_concepts - actual_concepts}"
+
+    # Test cover page
+    std_cover_page = aapl_financials.get_cover_page()
+    assert std_cover_page is not None
+    # Cover page doesn't have standard concepts defined, so we just check if it exists
+
+
+def test_create_statements_with_divisors(apple_xbrl):
+    financials = Financials(apple_xbrl)
+    balance_sheet = financials.get_balance_sheet()

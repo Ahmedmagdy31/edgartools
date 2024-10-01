@@ -15,7 +15,7 @@ from functools import lru_cache
 from typing import Dict, List, Tuple, Union, Any, Optional
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from rich import box
 from rich import print as rprint
 from rich.console import Group
@@ -28,7 +28,7 @@ from edgar.richtools import repr_rich, colorize_words
 from edgar.attachments import Attachments
 from edgar.core import log, split_camel_case, run_async_or_sync
 from edgar.httprequests import download_file_async
-from edgar.xbrl.calculatons import parse_calculation_linkbase
+from edgar.xbrl.calculations import CalculationLinkbase
 from edgar.xbrl.concepts import Concept, concept_to_label
 from edgar.xbrl.definitions import parse_definition_linkbase
 from edgar.xbrl.facts import XBRLInstance
@@ -112,14 +112,14 @@ class XBRLAttachments:
         return all(doc in self._documents for doc in
                    ['instance', 'schema', 'definition', 'label', 'calculation', 'presentation'])
 
-    async def load(self) -> Tuple[str, str, Dict, Dict]:
+    async def load(self) -> Tuple[str, str, Dict, CalculationLinkbase]:
         """
         Load the XBRL documents asynchronously and parse them.
         """
         parsers = {
             'definition': parse_definition_linkbase,
             'label': parse_label_linkbase,
-            'calculation': parse_calculation_linkbase,
+            'calculation': CalculationLinkbase.parse,
             'presentation': lambda x: x,
             'instance': lambda x: x,
             'schema': lambda x: x
@@ -150,7 +150,7 @@ class XBRLAttachments:
         return (parsed_files.get('instance', ''),
                 parsed_files.get('presentation', ''),
                 parsed_files.get('label', {}),
-                parsed_files.get('calculation', {}))
+                parsed_files.get('calculation'))
 
     @staticmethod
     async def download_and_parse(doc_type: str, parser, url: str):
@@ -242,32 +242,50 @@ class LineItem(BaseModel):
     values: Dict[str, Any]
     level: int
 
+    def __hash__(self):
+        return hash((self.concept, self.label, self.level))
+
 
 class StatementDefinition(BaseModel):
-    # The name of the financial statement (e.g., "Balance Sheet", "Income Statement")
     name: str
-    # A list of LineItem objects representing each line in the financial statement
     line_items: List[LineItem] = Field(default_factory=list)
+
+    def __hash__(self):
+        return hash((self.name, tuple(self.line_items)))
+
+    def __eq__(self, other):
+        if not isinstance(other, StatementDefinition):
+            return False
+        return self.name == other.name and self.line_items == other.line_items
 
     @property
     def label(self):
-        return self.line_items[0].label.replace(' [Abstract]', '')
+        return self.line_items[0].label.replace(' [Abstract]', '') if self.line_items else ''
 
     @property
     def empty(self):
         return not self.line_items
 
     @classmethod
-    def create(cls, name: str, presentation_element: PresentationElement, labels: Dict, calculations: Dict,
-               instance: XBRLInstance, preferred_label: str = None) -> 'StatementDefinition':
+    def create(cls,
+               name: str,
+               presentation_element: PresentationElement,
+               labels: Dict,
+               calculations: CalculationLinkbase,
+               instance: XBRLInstance,
+               preferred_label: str = None) -> 'StatementDefinition':
         # Factory method to create a StatementDefinition instance
         statement = cls(name=name)
         # Build the line items for the statement
         statement.build_line_items(presentation_element, labels, calculations, instance, preferred_label)
+
         return statement
 
-    def build_line_items(self, presentation_element: PresentationElement, labels: Dict, calculations: Dict,
-                         instance: XBRLInstance, preferred_label: str = None):
+    def build_line_items(self, presentation_element: PresentationElement,
+                         labels: Dict,
+                         calculations: CalculationLinkbase,
+                         instance: XBRLInstance,
+                         preferred_label: str = None):
         seen_sections = defaultdict(int)
         seen_concepts = set()
         self.line_items = []
@@ -288,7 +306,7 @@ class StatementDefinition(BaseModel):
             seen_sections[label] += 1
             seen_concepts.add(concept)
 
-            values = self.get_fact_values(concept, instance)
+            values = self.get_fact_values(concept, instance, calculations)
             self.line_items.append(LineItem(
                 concept=concept,
                 label=label,
@@ -328,10 +346,19 @@ class StatementDefinition(BaseModel):
                 or StatementDefinition.concept_to_label(concept))
 
     @staticmethod
-    @lru_cache(maxsize=1000)
-    def get_fact_values(concept: str, instance: XBRLInstance) -> Dict[str, Any]:
+    def get_fact_values(concept: str,
+                        instance: XBRLInstance,
+                        calculation_links: CalculationLinkbase) -> Dict[str, Any]:
         facts = instance.query_facts(concept=concept)
         values = {}
+
+        # Get the calculation weight for this concept
+        if calculation_links:
+            calc = calculation_links.get_calculation(concept)
+            weight = calc.weight if calc else 1.0
+        else:
+            weight = 1.0
+
         for _, fact in facts.iterrows():
             if fact['period_type'] == 'instant':
                 period = fact['end_date']
@@ -339,27 +366,33 @@ class StatementDefinition(BaseModel):
                 period = f"{fact['start_date']} to {fact['end_date']}"
 
             # Create a unique key that includes the period and dimensions
-            key = (period, tuple(sorted(fact['dimensions'])))
+            key = (period, tuple(sorted(fact['dimensions'].items())))
+
+            # Apply the weight to the value
+            value = fact['value']
+            if weight == -1.0:
+                if value and value[0] != '-':
+                    value = f"-{value}"
 
             # If this period doesn't exist in values, or if it does but the current fact has no dimensions (default)
             if period not in values or not fact['dimensions']:
                 values[period] = {
-                    'value': fact['value'],
+                    'value': value,
                     'units': fact['units'],
                     'decimals': fact['decimals'],
                     'dimensions': fact['dimensions'],
-                    'duration': fact['duration']  # Add the duration here
+                    'duration': fact['duration']
                 }
 
             # Store all dimensional values in a separate dictionary
             if 'dimensional_values' not in values[period]:
                 values[period]['dimensional_values'] = {}
             values[period]['dimensional_values'][key] = {
-                'value': fact['value'],
+                'value': value,
                 'units': fact['units'],
                 'decimals': fact['decimals'],
                 'dimensions': fact['dimensions'],
-                'duration': fact['duration']  # Add the duration here as well
+                'duration': fact['duration']
             }
 
         return values
@@ -403,7 +436,7 @@ class StatementDefinition(BaseModel):
 
 
 def is_integer(s):
-    if not s:
+    if s is pd.NA or pd.isna(s) or not s:
         return False
     if s[0] in ('-', '+'):
         s = s[1:]
@@ -415,23 +448,39 @@ def is_integer(s):
     return s.isdigit()
 
 
-def format_xbrl_value(value: Union[str, float], decimals: str, unit_divisor: int = 1,
-                      format_str: str = '{:>15,.0f}') -> str:
+def format_xbrl_value(value: Union[str, float],
+                      decimals: str,
+                      format_str: str = '{:>10,.0f}') -> str:
+    """
+    Format an XBRL value for display
+    """
     if is_integer(value):
         value = float(value)
         if decimals != 'INF':
             try:
                 decimal_int = int(decimals)
                 if decimal_int < 0:
+                    unit_divisor = 10 ** (-1 * decimal_int)
                     value /= unit_divisor
             except ValueError:
                 pass
         if decimals == 'INF':
-            return f"{value:>15}"
+            return f"{value:>10}"
         else:
             return format_str.format(value)
     else:
-        return f"{value:>15}"
+        if pd.isna(value):
+            value = ''
+        return f"{value:>10}"
+
+
+def create_unit_label(decimals: str):
+    label = ""
+    if decimals == '-6':
+        label = "millions"
+    elif decimals == '-3':
+        label = "thousands"
+    return Text(label, style="dim grey70")
 
 
 def get_primary_units(divisor: int) -> str:
@@ -559,6 +608,8 @@ class Statement:
             columns.append('concept')
         if include_format:
             columns.extend(self.format_columns)
+        # Filter again to make sure the columns exist
+        columns = [col for col in columns if col in self.data.columns]
         return self.data[columns].copy()
 
     def to_dataframe(self,
@@ -601,7 +652,10 @@ class Statement:
 
     def __rich__(self):
         cols = [col for col in self.data.columns if col not in self.meta_columns]
-        columns = [Column('')] + [Column(col) for col in cols]
+        if 'decimals' in self.data:
+            columns = [Column(''), Column('')] + [Column(col, justify='right') for col in cols]
+        else:
+            columns = [Column('')] + [Column(col, justify='right') for col in cols]
 
         table = Table(*columns,
                       title=Text.assemble(*[(f"{self.entity}\n", "bold red1"),
@@ -630,11 +684,16 @@ class Statement:
             label = Text(format_label(row.Index, row.level), style=label_style)
             if 'decimals' in self.data:
                 # For now don't use the unit divisor until we figure out the logic
-                values = [label] + [Text.assemble(*[(format_xbrl_value(value=row[colindex + 1],
-                                                                       decimals=row.decimals), row_style)])
-                                    for colindex, col in enumerate(cols)]
+                values = ([label, create_unit_label(row.decimals)]
+                          + [Text.assemble(*[(format_xbrl_value(value=row[colindex + 1], decimals=row.decimals),
+                                              row_style)]
+                                           )
+                             for colindex, col in enumerate(cols)])
             else:
-                values = [label] + [Text.assemble(*[(row[colindex + 1], row_style)])
+                values = [label] + [Text.assemble(*[(
+                    row[colindex + 1], row_style)
+                ]
+                                                  )
                                     for colindex, col in enumerate(cols)]
 
             table.add_row(*values, end_section=is_total)
@@ -643,6 +702,9 @@ class Statement:
 
     def __repr__(self):
         return repr_rich(self.__rich__())
+
+    def __str__(self):
+        return f"{self.display_name}"
 
 
 class Statements():
@@ -721,9 +783,11 @@ class XBRLData(BaseModel):
     instance: XBRLInstance
     presentation: XBRLPresentation
     labels: Dict
-    calculations: Dict
+    calculations: Optional[CalculationLinkbase] = None
     statements_dict: Dict[str, StatementDefinition] = Field(default_factory=dict)
     label_to_concept_map: Dict[str, str] = Field(default_factory=dict)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _build_label_to_concept_map(self):
         for concept, label_dict in self.labels.items():
@@ -731,7 +795,11 @@ class XBRLData(BaseModel):
                 self.label_to_concept_map[label.lower()] = concept
 
     @classmethod
-    def parse(cls, instance_xml: str, presentation_xml: str, labels: Dict, calculations: Dict) -> 'XBRLData':
+    def parse(cls,
+              instance_xml: str,
+              presentation_xml: str,
+              labels: Dict,
+              calculations: CalculationLinkbase) -> 'XBRLData':
         """
         Parse XBRL documents from XML strings and create an XBRLParser instance.
 
@@ -746,15 +814,15 @@ class XBRLData(BaseModel):
         """
         instance = XBRLInstance.parse(instance_xml)
         presentation = XBRLPresentation.parse(presentation_xml)
-        parser = cls(
+        xbrl_data = cls(
             instance=instance,
             presentation=presentation,
             labels=labels,
             calculations=calculations
         )
-        parser._build_label_to_concept_map()
-        parser.parse_financial_statements()
-        return parser
+        xbrl_data._build_label_to_concept_map()
+        xbrl_data.parse_financial_statements()
+        return xbrl_data
 
     @classmethod
     async def from_filing(cls, filing: Filing):
@@ -769,7 +837,7 @@ class XBRLData(BaseModel):
         """
         xbrl_documents = XBRLAttachments(filing.attachments)
         if xbrl_documents.empty:
-            log.warn(f"No XBRL documents found in the filing. {filing}")
+            log.warning(f"No XBRL documents found in the filing. {filing}")
             return None
 
         assert not xbrl_documents.instance_only, "Instance document must be accompanied by other XBRL documents"
@@ -799,7 +867,7 @@ class XBRLData(BaseModel):
                 statement_name,
                 root_element,
                 self.labels,
-                self.calculations.get(role, {}),
+                self.calculations,
                 self.instance,
                 preferred_label=root_element.preferred_label
             )
@@ -1003,15 +1071,15 @@ class XBRLData(BaseModel):
 
         columns_to_include = [col for col
                               in df_reset.columns if
-                                col not in ['concept', 'level', 'abstract', 'units', 'decimals']]
+                              col not in ['concept', 'level', 'abstract', 'units', 'decimals']]
 
         if include_concept:
             columns_to_include.append('concept')
 
         if include_format:
             columns_to_include.extend([col for col in df_reset.columns
-                                        if col in ['level', 'abstract', 'units', 'decimals']
-                                      ])
+                                       if col in ['level', 'abstract', 'units', 'decimals']
+                                       ])
 
         df_reset = df_reset[columns_to_include]
 
